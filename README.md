@@ -1,3 +1,4 @@
+[![Build Status](https://github.com/Tom-Jim/lighting-rag-api/actions/workflows/build.yml/badge.svg)](https://github.com/Tom-Jim/lighting-rag-api/actions)
 # 💡 AI 光环境策略与灯具管理系统 (Lighting RAG & CRUD API)
 
 基于 **FastAPI + LangChain + Vue3 + SQLlite** 构建的智能照明领域综合服务接口。本项目包含两个核心模块：基于真实关系型数据库的灯具信息管理（CRUD），以及基于《建筑照明设计标准》的智能光环境策略生成系统（RAG）。本项目实现了“开箱即用”的本地化部署，内置关系型数据库与向量检索系统。
