@@ -9,20 +9,31 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_classic.retrievers import EnsembleRetriever
 from models.schemas import HardSpecsObj, FinalStrategyObj
 from config.settings import settings
+import os
+import httpx
 class LightingRAGSystem:
     def __init__(self, pdf_path):
         self.pdf_path = pdf_path
+        api_key = os.getenv("OPENAI_API_KEY")
+        api_base = os.getenv("OPENAI_API_BASE") or "https://api.siliconflow.cn/v1"
         # 替换为硅基流动的云端 Embedding API
         self.embeddings = OpenAIEmbeddings(
-            openai_api_key=settings.OPENAI_API_KEY,
-            openai_api_base=settings.OPENAI_API_BASE,
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            openai_api_base=os.getenv("OPENAI_API_BASE") or "https://api.siliconflow.cn/v1",
             model="BAAI/bge-m3",  # 使用智源的 BGE 模型
+            http_client=httpx.Client(),
             check_embedding_ctx_length=False  # 强制关闭本地 token 检查，绕过 tiktoken！
         )
         self.bm25_retriever = None
         self.vector_db = self._prepare_vector_db()
         # 初始化 LLM (DeepSeek)
-        self.llm = ChatOpenAI(model_name="deepseek-ai/DeepSeek-V3", temperature=0.1)
+        self.llm = ChatOpenAI(
+            model_name="deepseek-ai/DeepSeek-V3", 
+            temperature=0.1,
+            openai_api_key=api_key,
+            openai_api_base=api_base,
+            http_client=httpx.Client() #强制指定同步客户端
+        )
         
     def _prepare_vector_db(self):
         # A. 加载 PDF (PyMuPDFLoader 对排版解析最稳)

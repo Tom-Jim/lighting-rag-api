@@ -66,3 +66,5 @@ python3 desktop_app.py
 *** DELETE /lamps/{lamp_id} - 删除灯具**
 
 *** POST /strategy/ - [核心] 输入空间与风格，基于 RAG 生成专业的光环境策略**
+
+## 日志存放于macOS的~/Library/Caches/LightingSystem

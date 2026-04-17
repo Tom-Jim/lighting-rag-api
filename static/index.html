@@ -13,10 +13,41 @@
         .header { background-color: #001529; color: white; padding: 0 20px; line-height: 60px; font-size: 18px; font-weight: bold; }
         .main-container { padding: 20px; max-width: 1200px; margin: 0 auto; }
         .box-card { margin-bottom: 20px; }
+        .config-overlay {
+             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+             background: #f0f2f5; z-index: 9999;
+             display: flex; justify-content: center; align-items: center;
+        }
+        .config-card { width: 450px; border-radius: 12px; }
     </style>
 </head>
 <body>
     <div id="app">
+        <div v-if="!isConfigured" class="config-overlay">
+        <el-card class="config-card">
+            <template #header>
+                <div style="font-weight: bold; font-size: 18px;">🔑 系统首次运行配置</div>
+            </template>
+            <el-form label-position="top" :model="configForm">
+                <el-form-item label="OpenAI API Key">
+                    <el-input v-model="configForm.OPENAI_API_KEY" placeholder="sk-..." show-password></el-input>
+                </el-form-item>
+                <el-form-item label="API Base URL">
+                    <el-input v-model="configForm.OPENAI_API_BASE"></el-input>
+                </el-form-item>
+                <el-form-item label="HuggingFace Token">
+                    <el-input v-model="configForm.HF_TOKEN" placeholder="hf_..." show-password></el-input>
+                </el-form-item>
+                <el-form-item label="DATABASE_URL">
+                    <el-input v-model="configForm.DATABASE_URL" placeholder="sqlite:///./dummy.db" show-password></el-input>
+                </el-form-item>
+                <el-button type="primary" @click="submitConfig" :loading="configLoading" style="width: 100%; margin-top: 10px;">
+                    保存并进入系统
+                </el-button>
+            </el-form>
+        </el-card>
+        </div>
+        <div v-else>
         <div class="header">光环境策略与设备管理终端</div>
         
         <div class="main-container">
@@ -116,7 +147,7 @@
                     </span>
                 </template>
             </el-dialog>
-
+            </div>
         </div>
     </div>
 
@@ -124,6 +155,25 @@
         const { createApp, ref, reactive, onMounted } = Vue;
         const app = createApp({
             setup() {
+                const isConfigured = ref(false); // 控制是否显示配置遮罩
+                const configLoading = ref(false); // 提交按钮的加载状态
+                const configForm = reactive({
+                    OPENAI_API_KEY: '你的 OpenAI API Key',
+                    OPENAI_API_BASE: '你的 API Base URL，默认为硅基流动云端',
+                    HF_TOKEN: '你的 HuggingFace Token',
+                    DATABASE_URL:'sqlite:///./dummy.db'
+                });
+                const checkConfigStatus = async () => {
+                try {
+                const res = await axios.get('/config/status');
+                isConfigured.value = res.data.is_configured;
+                if (isConfigured.value) {
+                    fetchLamps(); // 已配置则加载灯具
+                }
+                } catch (err) {
+                isConfigured.value = false;
+                }
+                };
                 // 当前激活的 Tab
                 const activeTab = ref('strategy');
 
@@ -144,7 +194,20 @@
                         loading.value = false;
                     }
                 };
-
+                const submitConfig = async () => {
+                if (!configForm.OPENAI_API_KEY || !configForm.HF_TOKEN) {
+                return ElementPlus.ElMessage.error('请填写完整信息');
+                }
+                configLoading.value = true;
+                try {
+                await axios.post('/config/save', configForm);
+                ElementPlus.ElMessage.success('配置成功，系统已激活');
+                isConfigured.value = true;
+                fetchLamps();
+                } catch (e) {
+                ElementPlus.ElMessage.error('激活失败: ' + (e.response?.data?.detail || e.message));
+                } finally { configLoading.value = false; }
+                };
                 // ============== 数据库模块 ==============
                 const lamps = ref([]);
                 const tableLoading = ref(false);
@@ -217,14 +280,11 @@
                         }
                     }
                 };
-
-                // 页面加载时自动获取灯具列表
                 onMounted(() => {
-                    fetchLamps();
+                    checkConfigStatus(); // 启动后第一时间检查后端有没有 Key
                 });
-
                 return { 
-                    activeTab, 
+                    activeTab, isConfigured, configLoading, configForm,submitConfig,
                     form, loading, strategyResult, generateStrategy,
                     lamps, tableLoading, dialogVisible, dialogTitle, currentLamp,
                     fetchLamps, openDialog, saveLamp, deleteLamp 

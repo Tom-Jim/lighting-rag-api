@@ -1,27 +1,73 @@
+import os
+import httpx
+from config.settings import settings
 import uuid
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from models.database import get_db
 from models.domain import LampDB
 from models.schemas import LampCreate, LampResponse, RAGRequest
-from services.rag_service import LightingRAGSystem
-import os
-from config.settings import settings
+
 router = APIRouter()
 rag_system = None
+# 检查配置状态的接口
+@router.get("/config/status")
+async def get_config_status():
+    is_ready = all([
+        os.getenv("OPENAI_API_KEY"),
+        os.getenv("OPENAI_API_BASE"),
+        os.getenv("HF_TOKEN"),
+        os.getenv("DATABASE_URL")
+    ])
+    return {"is_configured": is_ready}
 
+# 保存配置并激活系统的接口
+@router.post("/config/save")
+def save_config(config: dict = Body(...)):
+    global rag_system
+    try:
+        # 动态注入环境变量到当前进程
+        os.environ["OPENAI_API_KEY"] = config.get("OPENAI_API_KEY", "")
+        os.environ["OPENAI_API_BASE"] = config.get("OPENAI_API_BASE", "") or "https://api.siliconflow.cn/v1"
+        os.environ["HF_TOKEN"] = config.get("HF_TOKEN", "")
+        os.environ["DATABASE_URL"] = config.get("DATABASE_URL", "")
+        
+        # 验证必填项
+        if not os.environ["OPENAI_API_KEY"] or not os.environ["HF_TOKEN"]:
+            raise ValueError("API Key 和 Token 不能为空")
+        # 关键：在这里才真正触发 RAG 的初始化
+        from services.rag_service import LightingRAGSystem
+        from config.settings import settings
+        # 立即触发 RAG 系统初始化（因为现在有了 Key）
+        print("⚙️ 收到前端配置，正在动态初始化 RAG 系统...")
+        print("⚙️ 正在执行向量化（这一步需要联网）...")
+        rag_system = LightingRAGSystem(settings.PDF_PATH)
+        
+        return {"status": "success", "message": "配置已生效"}
+    except Exception as e:
+        print(f"❌ RAG 初始化崩溃详情: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
 def init_rag():
     global rag_system
-    # 启动时自动加载 PDF 和向量库，初始化 RAG 系统
+    # 启动时仅打印状态，绝对不要 raise HTTPException
     if os.path.exists(settings.PDF_PATH):
-        print(f"正在初始化 RAG 系统，加载文件: {settings.PDF_PATH}")
-        rag_system = LightingRAGSystem(settings.PDF_PATH)
+        if os.getenv("OPENAI_API_KEY"):
+            print(f"检测到环境变量，正在加载 RAG 系统...")
+            try:
+                from services.rag_service import LightingRAGSystem
+                rag_system = LightingRAGSystem(settings.PDF_PATH)
+            except Exception as e:
+                print(f"RAG 初始化失败: {e}")
+                rag_system = None
+        else:
+            print("💡 环境变量缺失，等待用户通过前端配置...")
+            rag_system = None
     else:
         print(f"警告：未找到 PDF 文件 {settings.PDF_PATH}")
 # --- 业务接口：AI 光环境策略 ---
 @router.post("/strategy/", summary="制定策略")
-async def generate_strategy(req: RAGRequest):
+def generate_strategy(req: RAGRequest):
     if not rag_system:
         raise HTTPException(status_code=500, detail="RAG 系统未初始化。请检查 PDF 文件是否存在。")
     try:
