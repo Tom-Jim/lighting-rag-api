@@ -22,6 +22,10 @@
 
 * **前端**: Vue 3 + Element Plus (极速 CDN 构建)
 * **后端引擎**: FastAPI, Uvicorn, SQLite, SQLAlchemy
+## 📂 存储方案
+- **关系型数据库**：SQLite (用于管理灯具 CRUD 记录)。
+- **向量数据库**：ChromaDB (用于存储标准文件向量索引)。
+## 存储路径：数据库文件默认保存在 macOS 的标准应用支持目录下：~/Library/Application Support/LightingSystem/lighting.db
 * **AI 与检索**: DeepSeek-V3 (经 SiliconFlow API), LangChain, BM25, ChromaDB, BAAI/bge-m3
 * **打包与 GUI**: PyInstaller, PySide6
 ---
@@ -37,8 +41,9 @@
 **克隆项目并安装依赖：**
 ```bash
 # 建议在虚拟环境中运行 (如 conda 或 venv)
-pip install -r requirements.txt 
+
 # 配置环境变量
+pip install -r requirements.txt 
 # 请在项目根目录创建 .env 文件并填入以下内容：
 OPENAI_API_KEY=你的硅基流动API_KEY
 OPENAI_API_BASE=你的硅基流动API_BASE
@@ -57,15 +62,33 @@ python3 desktop_app.py
 
 ## 主要接口列表：
 *** POST /lamps/ - 新增灯具信息（品牌、型号、功率、色温）**
-
+# /lamps/	POST	新增灯具记录。
 *** GET /lamps/ - 分页查询灯具列表**
-
-*** GET /lamps/{lamp_id} - 精确查询单条灯具**
-
+# /lamps/	GET	获取所有已保存的灯具列表。
 *** PUT /lamps/{lamp_id} - 更新灯具信息**
-
+# /lamps/{id}	PUT	根据 ID 更新灯具详细参数。
 *** DELETE /lamps/{lamp_id} - 删除灯具**
-
+# /lamps/{id}	DELETE	根据 ID 删除特定灯具记录。
 *** POST /strategy/ - [核心] 输入空间与风格，基于 RAG 生成专业的光环境策略**
-
+# /strategy/	POST	接收空间类型与风格，执行混合检索并生成国标方案。
 ## 日志存放于macOS的~/Library/Caches/LightingSystem
+
+## 📡 API 概览
+- **策略生成**：`POST /strategy/` 接收空间需求。
+- **灯具管理**：`GET/POST/PUT/DELETE /lamps/` 标准 RESTful 接口。
+- **配置自检**：`GET /config/status` 确认系统激活状态。
+
+## 🧪 测试引导
+- **在线文档**：启动后访问 `http://127.0.0.1:8000/docs` 进行接口调试。
+- **前端演示**：访问 `http://127.0.0.1:8000/` 或直接在桌面窗口操作。
+## 界面级测试
+***启动应用：运行 python3 desktop_app.py 启动桌面客户端。**
+
+***配置激活：在首屏弹出的拦截界面填入 API 密钥，点击保存后观察日志是否成功加载 PDF 并完成向量化。**
+
+***功能链路：在“AI 光环境策略”页签输入“客厅”+“现代风格”，点击生成，验证 RAG 流程是否打通。**
+
+## 接口级测试 (Swagger)
+***进入文档：程序启动后，在浏览器访问 http://127.0.0.1:8000/docs。**
+
+***交互测试：利用 Swagger 的 Try it out 功能，对 /lamps/ 接口进行 POST 和 GET 请求，验证数据库读写是否正常。**
