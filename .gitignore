@@ -1,0 +1,27 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+# 本地数据库与向量库
+lighting_db/
+*.db
+*.sqlite3
+
+# 环境变量与密钥 (如果有)
+.env
+
+# 虚拟环境
+venv/
+blender_venv_py311/
+
+大模型光环境策略.py
+最小实例代码.py
+
+*.sqlite
+chroma_db/
+lighting_db/
+
+# Mac 系统文件
+.DS_Store

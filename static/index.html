@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>光环境策略与灯具管理系统</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css" />
+    <script src="https://unpkg.com/element-plus"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    
+    <style>
+        body { margin: 0; background-color: #f0f2f5; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+        .header { background-color: #001529; color: white; padding: 0 20px; line-height: 60px; font-size: 18px; font-weight: bold; }
+        .main-container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+        .box-card { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">光环境策略与设备管理终端</div>
+        
+        <div class="main-container">
+            <el-tabs v-model="activeTab" type="border-card">
+                
+                <el-tab-pane label="💡 AI 光环境策略" name="strategy">
+                    <el-row :gutter="20">
+                        <el-col :span="8">
+                            <el-card class="box-card" shadow="hover">
+                                <template #header>
+                                    <div class="card-header"><span>参数配置</span></div>
+                                </template>
+                                <el-form label-position="top">
+                                    <el-form-item label="空间类型">
+                                        <el-input v-model="form.space_type" placeholder="例如：主卧、客厅"></el-input>
+                                    </el-form-item>
+                                    <el-form-item label="装修风格">
+                                        <el-input v-model="form.style" placeholder="例如：现代简约"></el-input>
+                                    </el-form-item>
+                                    <el-button type="primary" @click="generateStrategy" :loading="loading" style="width: 100%;">
+                                        开始分析生成策略
+                                    </el-button>
+                                </el-form>
+                            </el-card>
+                        </el-col>
+                        
+                        <el-col :span="16">
+                            <el-card class="box-card" shadow="hover" style="min-height: 400px;">
+                                <template #header>
+                                    <div class="card-header"><span>国标大模型输出结果</span></div>
+                                </template>
+                                
+                                <div v-if="!strategyResult" style="color: #909399; text-align: center; margin-top: 100px;">
+                                    等待输入参数并运行...
+                                </div>
+                                
+                                <el-descriptions v-else title="策略详情" :column="2" border>
+                                    <el-descriptions-item label="空间类型">{{ strategyResult.space }}</el-descriptions-item>
+                                    <el-descriptions-item label="装修风格">{{ strategyResult.style }}</el-descriptions-item>
+                                    <el-descriptions-item label="国标条文">{{ strategyResult.standard_id }}</el-descriptions-item>
+                                    <el-descriptions-item label="推荐色温">
+                                        <el-tag type="warning">{{ strategyResult.cct_suggest }}</el-tag>
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="照度指标">{{ strategyResult.standard_lux }}</el-descriptions-item>
+                                    <el-descriptions-item label="显色要求">{{ strategyResult.ra_requirement }}</el-descriptions-item>
+                                    <el-descriptions-item label="推荐品牌">{{ strategyResult.brand_suggest }}</el-descriptions-item>
+                                    <el-descriptions-item label="布灯策略" :span="2">{{ strategyResult.layout_strategy }}</el-descriptions-item>
+                                    <el-descriptions-item label="设计逻辑" :span="2">{{ strategyResult.design_logic }}</el-descriptions-item>
+                                </el-descriptions>
+                            </el-card>
+                        </el-col>
+                    </el-row>
+                </el-tab-pane>
+
+                <el-tab-pane label="📦 灯具数据库管理" name="database">
+                    <div style="margin-bottom: 15px;">
+                        <el-button type="success" @click="openDialog()">新增灯具 +</el-button>
+                        <el-button @click="fetchLamps">刷新列表</el-button>
+                    </div>
+                    
+                    <el-table :data="lamps" style="width: 100%" border stripe v-loading="tableLoading">
+                        <el-table-column prop="id" label="ID" width="300"></el-table-column>
+                        <el-table-column prop="brand" label="品牌"></el-table-column>
+                        <el-table-column prop="model" label="型号"></el-table-column>
+                        <el-table-column prop="power" label="功率 (W)" width="100"></el-table-column>
+                        <el-table-column prop="color_temp" label="色温 (K)" width="100"></el-table-column>
+                        <el-table-column label="操作" width="150" fixed="right">
+                            <template #default="scope">
+                                <el-button size="small" type="primary" plain @click="openDialog(scope.row)">编辑</el-button>
+                                <el-button size="small" type="danger" @click="deleteLamp(scope.row.id)">删除</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </el-tab-pane>
+
+            </el-tabs>
+
+            <el-dialog :title="dialogTitle" v-model="dialogVisible" width="400px">
+                <el-form label-width="80px">
+                    <el-form-item label="品牌">
+                        <el-input v-model="currentLamp.brand" placeholder="例如: Philips"></el-input>
+                    </el-form-item>
+                    <el-form-item label="型号">
+                        <el-input v-model="currentLamp.model" placeholder="例如: Hue X1"></el-input>
+                    </el-form-item>
+                    <el-form-item label="功率(W)">
+                        <el-input-number v-model="currentLamp.power" :min="1" :max="1000"></el-input-number>
+                    </el-form-item>
+                    <el-form-item label="色温(K)">
+                        <el-input-number v-model="currentLamp.color_temp" :step="100" :min="1000" :max="10000"></el-input-number>
+                    </el-form-item>
+                </el-form>
+                <template #footer>
+                    <span class="dialog-footer">
+                        <el-button @click="dialogVisible = false">取消</el-button>
+                        <el-button type="primary" @click="saveLamp">保存提交</el-button>
+                    </span>
+                </template>
+            </el-dialog>
+
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted } = Vue;
+        const app = createApp({
+            setup() {
+                // 当前激活的 Tab
+                const activeTab = ref('strategy');
+
+                // ============== 策略模块 ==============
+                const form = reactive({ space_type: '主卧', style: '现代简约' });
+                const loading = ref(false);
+                const strategyResult = ref(null);
+
+                const generateStrategy = async () => {
+                    loading.value = true;
+                    try {
+                        const response = await axios.post('/strategy/', form);
+                        strategyResult.value = response.data.strategy;
+                        ElementPlus.ElMessage.success('策略生成成功！');
+                    } catch (error) {
+                        ElementPlus.ElMessage.error('生成失败：' + (error.response?.data?.detail || error.message));
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                // ============== 数据库模块 ==============
+                const lamps = ref([]);
+                const tableLoading = ref(false);
+                const dialogVisible = ref(false);
+                const dialogTitle = ref('新增灯具');
+                
+                // 表单绑定的当前灯具数据
+                const currentLamp = reactive({ brand: '', model: '', power: 10, color_temp: 3000 });
+                let editLampId = null; // 记录当前正在编辑的 ID，如果是 null 则代表是新增
+
+                // 获取所有灯具 (READ)
+                const fetchLamps = async () => {
+                    tableLoading.value = true;
+                    try {
+                        const res = await axios.get('/lamps/');
+                        lamps.value = res.data;
+                    } catch (error) {
+                        ElementPlus.ElMessage.error('获取列表失败');
+                    } finally {
+                        tableLoading.value = false;
+                    }
+                };
+
+                // 打开弹窗 (兼容新增与编辑)
+                const openDialog = (row) => {
+                    if (row) {
+                        // 如果传入了行数据，说明是编辑模式
+                        dialogTitle.value = '编辑灯具信息';
+                        editLampId = row.id;
+                        Object.assign(currentLamp, row); // 将行数据填充到表单
+                    } else {
+                        // 没有数据，说明是新增模式
+                        dialogTitle.value = '新增灯具';
+                        editLampId = null;
+                        Object.assign(currentLamp, { brand: '', model: '', power: 10, color_temp: 3000 });
+                    }
+                    dialogVisible.value = true;
+                };
+
+                // 保存灯具 (CREATE / UPDATE)
+                const saveLamp = async () => {
+                    try {
+                        if (editLampId) {
+                            // 编辑模式 -> PUT 请求
+                            await axios.put(`/lamps/${editLampId}`, currentLamp);
+                            ElementPlus.ElMessage.success('更新成功！');
+                        } else {
+                            // 新增模式 -> POST 请求
+                            await axios.post('/lamps/', currentLamp);
+                            ElementPlus.ElMessage.success('新增成功！');
+                        }
+                        dialogVisible.value = false; // 关闭弹窗
+                        fetchLamps(); // 重新拉取最新数据
+                    } catch (error) {
+                        ElementPlus.ElMessage.error('保存失败：' + error.message);
+                    }
+                };
+
+                // 删除灯具 (DELETE)
+                const deleteLamp = async (id) => {
+                    try {
+                        // 借用 Element Plus 的内置确认框
+                        await ElementPlus.ElMessageBox.confirm('确定要删除该灯具记录吗？', '警告', { type: 'warning' });
+                        await axios.delete(`/lamps/${id}`);
+                        ElementPlus.ElMessage.success('删除成功！');
+                        fetchLamps();
+                    } catch (error) {
+                        if(error !== 'cancel') {
+                            ElementPlus.ElMessage.error('删除失败');
+                        }
+                    }
+                };
+
+                // 页面加载时自动获取灯具列表
+                onMounted(() => {
+                    fetchLamps();
+                });
+
+                return { 
+                    activeTab, 
+                    form, loading, strategyResult, generateStrategy,
+                    lamps, tableLoading, dialogVisible, dialogTitle, currentLamp,
+                    fetchLamps, openDialog, saveLamp, deleteLamp 
+                };
+            }
+        });
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>
