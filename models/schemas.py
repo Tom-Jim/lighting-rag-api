@@ -1,6 +1,11 @@
 from pydantic import BaseModel, Field
 from typing import Optional
+from typing import Any
 
+class UnifiedResponse(BaseModel):
+    code: int
+    msg: str
+    data: Any = None
 class HardSpecsObj(BaseModel):
     space: str = Field(description="空间类型")
     lux: str = Field(description="具体的照度值或范围，未明确则输出'需参考经验值'")
