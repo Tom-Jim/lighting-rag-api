@@ -8,6 +8,8 @@ on:
 jobs:
   build-macos:
     runs-on: macos-latest
+    permissions:
+      contents: write  # 赋予创建 Release 和上传文件的权限
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
