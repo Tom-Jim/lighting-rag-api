@@ -31,7 +31,7 @@ app.include_router(router)
 async def root():
     html_path = get_resource_path("static/index.html")
     try:
-        # 直接拿 Python 读文件，不走娇气的 StaticFiles 模块
+        # 直接拿 Python 读文件，不走 StaticFiles 模块
         with open(html_path, "r", encoding="utf-8") as f:
             return f.read()
     except Exception as e:

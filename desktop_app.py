@@ -4,7 +4,7 @@ if getattr(sys, 'frozen', False):
     # 强制将工作目录切换到打包解压后的真实目录，这样所有的相对路径都能正常工作
     os.chdir(sys._MEIPASS)
 
-# 将日志写入 macOS 缓存目录
+将日志写入 macOS 缓存目录
 log_dir = os.path.expanduser("~/Library/Caches/LightingSystem")
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, "app.log")
@@ -43,7 +43,7 @@ class MainWindow(QMainWindow):
             </div>
         </body>
         """
-        # 直接指向你的 Swagger 接口地址
+        # 直接指向Swagger 接口地址
         self.browser.setHtml(loading_html)
         self.setCentralWidget(self.browser)
 

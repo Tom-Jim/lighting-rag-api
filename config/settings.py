@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     OPENAI_API_BASE: Optional[str]=None
     HF_TOKEN: Optional[str]=None
     DATABASE_URL: Optional[str]="sqlite:///./dummy.db"
-    PDF_PATH: str = "resources/GBT31831—2025.pdf"
+    PDF_PATH: str = "resources/GB500342013.pdf"
 
     class Config:
         # 动态指定 .env 文件的绝对路径

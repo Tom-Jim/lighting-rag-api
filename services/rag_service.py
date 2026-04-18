@@ -22,7 +22,8 @@ class LightingRAGSystem:
             openai_api_base=os.getenv("OPENAI_API_BASE") or "https://api.siliconflow.cn/v1",
             model="BAAI/bge-m3",  # 使用智源的 BGE 模型
             http_client=httpx.Client(),
-            check_embedding_ctx_length=False  # 强制关闭本地 token 检查，绕过 tiktoken！
+            check_embedding_ctx_length=False,  # 强制关闭本地 token 检查，绕过 tiktoken！
+            chunk_size=64
         )
         self.bm25_retriever = None
         self.vector_db = self._prepare_vector_db()
@@ -42,10 +43,10 @@ class LightingRAGSystem:
         print(f"📄 成功加载 PDF，共 {len(data)} 页")
         
         # B. 文档分块 (Chunking)
-        # 为什么选 500？因为国标条文一般很短，500 能包住一条完整的规定且带上下文
-        # chunk_size=500: 每块 500 字。太大会导致噪音多，太小会导致语义丢失。
-        # chunk_overlap=50: 相邻两块之间有 50 字重叠，防止重要的标准（如数值）刚好被切断。
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        # 为什么选 1000？因为国标条文一般很短，1000 能包住一条完整的规定且带上下文
+        # chunk_size=100: 每块 100 字。太大会导致噪音多，太小会导致语义丢失。
+        # chunk_overlap=100: 相邻两块之间有 100 字重叠，防止重要的标准（如数值）刚好被切断。
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
         chunks = text_splitter.split_documents(data)
         print(f"✂️ 成功将 PDF 切分为 {len(chunks)} 个文本块")
         
@@ -53,7 +54,7 @@ class LightingRAGSystem:
             raise ValueError(f"严重错误：从 {self.pdf_path} 中没有提取到任何文本！请检查该 PDF 是否为纯图片扫描件，或者文件路径是否正确。")
         
         self.bm25_retriever = BM25Retriever.from_documents(chunks)
-        self.bm25_retriever.k = 3  # 设置返回最相关的 3 条
+        self.bm25_retriever.k = 10  # 设置返回最相关的 10 条
 
         import os
         chroma_dir = os.path.expanduser("~/Library/Application Support/LightingSystem/chroma_db")
@@ -70,18 +71,17 @@ class LightingRAGSystem:
         print(f"🔄 正在标准化术语: '{raw_space}' ...")
         # 利用大模型的知识储备，强制将其映射为国标专业词汇
         prompt = f"""
-        你是一位精通《建筑照明设计标准》的专家。
-        用户输入了一个日常使用的空间名称：“{raw_space}”。
-        请将其转换为国标中最准确、最规范的建筑空间术语。
+        你是一位精通《GB 50034-2013 建筑照明设计标准》的专家。
+        用户输入了一个建筑空间名称：“{raw_space}”。
+        你的任务是：将其严格转换为该国标（特别是表5.2.1至表5.5.1）中出现的最准确、最规范的单一专业术语。
         
-        【参考示例】：
-        - 客厅 / 大厅 / 厅 -> 起居室
-        - 洗手间 / 厕所 / 茅房 -> 卫生间
+        【强制映射示例】：
+        - 客厅 / 大厅 / 厅 / 起居空间 -> 起居室
+        - 洗手间 / 厕所 / 卫浴 / 盥洗室 -> 卫生间
+        - 主卧 / 次卧 / 房间 / 客房 -> 卧室
         - 走廊 / 过道 -> 走道
-        - 吃饭的地方 -> 餐厅
         
-        【规则】：如果用户输入的词已经很标准（比如“主卧”、“办公室”），则原样输出。
-        【强制】：只能输出转换后的标准术语，绝不能包含任何其他文字或标点符号！
+        【规则】：只能输出转换后的标准术语，绝不能包含任何其他文字、解释或标点符号！
         """
         try:
             # 使用大模型直接输出文本
@@ -94,7 +94,7 @@ class LightingRAGSystem:
     def ask(self, space_type, style):
         standard_space = self.normalize_space_name(space_type)
         print(f"\n🚀 [阶段 1/3] 开始混合检索: {standard_space} 的国标数据...")
-        vector_retriever = self.vector_db.as_retriever(search_kwargs={"k": 3})
+        vector_retriever = self.vector_db.as_retriever(search_kwargs={"k": 10})
         
         # 构建混合检索器 (Hybrid Search)
         # weights=[0.5, 0.5] 表示关键词硬匹配和语义软匹配各占 50% 权重
@@ -103,13 +103,14 @@ class LightingRAGSystem:
             retrievers=[self.bm25_retriever, vector_retriever],
             weights=[0.5, 0.5] 
         )
-        query = f"查找《建筑照明设计标准》中关于'{standard_space}'（注意同义词如起居室、卫生间等）的照度标准值、显色指数等条文及表格数据。"
+        query = f"查询 {standard_space} 照度标准值 显色指数 Ra 照明功率密度"
         # 手动调用检索器获取文档块
         retrieved_docs = ensemble_retriever.invoke(query)
         context = "\n---\n".join([doc.page_content for doc in retrieved_docs])
         print(f"📊 [阶段 2/3] LLM 提取硬指标 (参数剥离)...")
         extract_prompt = f"""
-        任务：从以下国标条文中，严格提取与【{standard_space}】（或其同义词）相关的照明物理参数。
+        任务：从以下国标条文中，提取与【{standard_space}】相关的照明参数。
+
         如果原文没有提到该空间，请将对应字段设为 "标准未明确，需参考经验值"。
         
         参考条文：
@@ -123,7 +124,8 @@ class LightingRAGSystem:
         {{{{
             "space": "{standard_space}",
             "lux": "具体的照度值或范围",
-            "ra": "显色指数要求"
+            "ra": "显色指数要求",
+            "standard_id": "该数据所在的表号或条文号（如 表5.2.1）。若无则填'无参考文档'"
         }}}}
         """
         
@@ -134,10 +136,10 @@ class LightingRAGSystem:
             hard_specs_obj = extractor_llm.invoke(extract_prompt)
             # 转成字典供后续使用
             hard_specs = hard_specs_obj.model_dump()
-            print(f"   成功提取参数 -> 照度: {hard_specs.get('lux')}, Ra: {hard_specs.get('ra')}")
+            print(f"   ✅ 溯源成功 -> {hard_specs.get('standard_id')}: 照度 {hard_specs.get('lux')}, Ra {hard_specs.get('ra')}")
         except Exception as e:
             print(f"   ⚠️ JSON 解析失败，回退到安全模式: {e}")
-            hard_specs = {"space": standard_space, "lux": "需参考经验值", "ra": "需参考经验值"}
+            hard_specs = {"space": standard_space, "lux": "需参考经验值", "ra": "需参考经验值", "standard_id": "无参考文档"}
         print(f"🎨 [阶段 3/3] 风格融合与方案生成...")
         #一层括号 {python_var}：Python 立刻把变量值塞进去。
         #两层括号 {{langchain_var}}：留给 LangChain 以后塞数据（比如 {{context}} 和 {{question}}）。
@@ -156,12 +158,10 @@ class LightingRAGSystem:
         空间类型：{standard_space}
         装修风格：{style}
         【参考国标原文】：
-        {{context}}
-
-        【用户需求】：
-        {{question}}
+        {context}
 
         【从数据库提取的不可逾越的硬指标】：
+        依据条文：{hard_specs.get('standard_id')}
         照度必须满足：{hard_specs.get('lux')}
         显色指数必须满足：{hard_specs.get('ra')}
 
@@ -169,12 +169,12 @@ class LightingRAGSystem:
         {{{{
             "space": "{standard_space}",
             "style": "{style}",
-            "standard_id": "<填入具体的标准条文编号，如 GB50034 5.2.2。若原文没写则填'无参考文档'>",
+            "standard_id": "{hard_specs.get('standard_id')}",
             "standard_lux": "{hard_specs.get('lux')}",
             "min_lux": "<填入具体的数字，若无则填'无'>",
             "ra_requirement": "{hard_specs.get('ra')}",
             "standard_ra": "{hard_specs.get('ra')}",
-            "cct_suggest": "色温建议（如3000K，结合风格说明原因）",
+            "cct_suggest": "请给出类似 '3000K(具体原因)' 的专业建议",
             "brand_suggest": "推荐灯具品牌",
             "design_logic": "基于风格和国标的设计思路",
             "layout_strategy": "布灯策略（基础照明+重点照明的具体点位）"
@@ -183,56 +183,39 @@ class LightingRAGSystem:
         【强制要求】：必须严格以 JSON 格式输出，不要包含任何 Markdown 标记 (如 ```json)。
         如果硬指标显示"无参考文档"，说明国标未明确，请依靠你的行业经验生成设计思路，并在设计逻辑中注明。
         """
-        QA_CHAIN_PROMPT = PromptTemplate(
-            input_variables=["context", "question"],
-            template=system_prompt,
-        )
-
-        # 构建 RAG Chain：将搜索到的知识塞进 Prompt
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            chain_type="stuff", # 简单直接的合并方式
-            retriever=ensemble_retriever,
-            chain_type_kwargs={"prompt": QA_CHAIN_PROMPT}, # 找最相关的3条
-            return_source_documents=True  # 关键：必须返回参考的原文数据
-        )
-        
-        initial_res = qa_chain.invoke(query)
-    
-        sources = "\n---\n".join([doc.page_content for doc in initial_res['source_documents']])
-        answer = initial_res['result']
-
-        # 我们把原始条文和 AI 刚才写的答案都发给它
+        print(f"🎨 [阶段 3/4] 风格融合与方案草拟...")
+        draft_llm = self.llm.with_structured_output(FinalStrategyObj)
+        draft_strategy_obj = draft_llm.invoke(system_prompt)
+        draft_strategy = draft_strategy_obj.model_dump()
+        print(f"🛡️ [阶段 4/4] 启动专家审计与数据对齐...")
         verification_prompt = f"""
-        【任务：照明设计建议审计】
-        你现在的身份是首席审核官。请对比“参考原文”核查“初版建议”。
-
-        [参考原文]：
-        {sources}
-
-        [初版建议]：
-        {answer}
-
-        要求：
-        1. 严谨性核查：初版建议中的照度（Lux）、功率等数值是否在原文中有据可查？数据来源是否准确指明
-        2. 幻觉修正：如果原文未提及该空间，必须将描述改为“参考行业经验建议”而非“根据国标标准”。
-        3. 输出要求：直接输出修正后的最终专业版本，不要输出审核过程。
-        4. 核对草稿中的“照度”与“显色指数”，必须与“依据的原文”一致，违规直接报错。
-        5. 原文若无出处，对应的 standard_id、standard_lux 等字段必须保留为“无参考文档”。
-        【强制字段填充规则 - 绝不允许留空】：
-        1. standard_id (国标条文)：仔细阅读[参考原文]，提取具体的表号或条文号（例如：表5.2.2、第5.3.1条等）。如果原文中完全没有出现任何编号，你必须严格填入 "无参考文档"，绝不允许输出空字符串！
-        2. standard_lux (照度)：必须与原文数值严格一致，未找到填 "无参考文档"。
-        3. standard_ra (显色指数)：必须与原文数值严格一致，未找到填 "无参考文档"。
-        4. 幻觉修正：如果原文未提及该空间，design_logic 必须注明“原文无数据，依据行业经验设计”。
-        5. 你必须完整填充 FinalStrategyObj 模型中的所有字段，任何字段不得留空。
-        """
-    
-        # 核心修改点：绑定最终输出的 Pydantic 模型
-        auditor_llm = self.llm.with_structured_output(FinalStrategyObj)
+        【任务：照明方案专家评审】
+        你现在是资深照明总工程师。请根据《GB 50034-2013》原文和提取的硬指标，对初版方案进行最终审计。
         
-        # 调用大模型，得到严格的 FinalStrategyObj 对象
+        【参考国标原文】：
+        {context}
+        
+        【必须锁死的硬指标】：
+        依据条文：{hard_specs.get('standard_id')}
+        标准照度：{hard_specs.get('lux')} lx
+        显色指数：{hard_specs.get('ra')}
+        
+        【初版待审方案】：
+        {draft_strategy}
+        
+        【审计规则】：
+        1. 数据一致性：如果“初版方案”里的照度或条文号与“硬指标”不符，必须按“硬指标”修正。
+        2. 理由丰满度：检查 cct_suggest 是否包含理由，若无请根据【{style}】风格补全。
+        3. 逻辑自洽：确保 design_logic 能够解释为何如此布灯。
+        
+        请输出最终修正后的 JSON 方案。
+        """
+        auditor_llm = self.llm.with_structured_output(FinalStrategyObj)
         final_output_obj = auditor_llm.invoke(verification_prompt)
         final_dict = final_output_obj.model_dump()
+        final_dict["standard_id"] = hard_specs.get('standard_id', "无参考文档")
+        final_dict["standard_lux"] = hard_specs.get('lux', "无参考文档")
+        final_dict["standard_ra"] = hard_specs.get('ra', "无参考文档")
         # model_dump() 将对象转为标准 Python 字典
         # FastAPI 接收到字典后，会自动将其序列化为完美的 JSON 返回给前端
         required_keys = [

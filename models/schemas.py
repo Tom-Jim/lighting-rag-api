@@ -10,6 +10,7 @@ class HardSpecsObj(BaseModel):
     space: str = Field(description="空间类型")
     lux: str = Field(description="具体的照度值或范围，未明确则输出'需参考经验值'")
     ra: str = Field(description="显色指数要求，未明确则输出'需参考经验值'")
+    standard_id: str = Field(description="明确指出引用的具体国标及条文编号，例如'GB 50034-2013 第5.2.2条'或'GB/T 31831-2025 第X条'。没有则填'无参考文档'")
 
 class FinalStrategyObj(BaseModel):
     space: str = Field(description="空间类型")
